@@ -4201,25 +4201,4 @@ MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetMemoryFdPropertiesKHR(
     return VK_ERROR_INVALID_EXTERNAL_HANDLE;
 }
 
-MVK_PUBLIC_VULKAN_SYMBOL VkResult vkImportMemoryFdKHR(
-    VkDevice                                    device,
-    const VkImportMemoryFdInfoKHR*             pImportFdInfo) {
-
-    MVKTraceVulkanCallStart();
-    if (!pImportFdInfo) {
-        MVKTraceVulkanCallEnd();
-        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
-    }
-    
-    VkDeviceMemory deviceMemory = pImportFdInfo->memory;
-    if (!deviceMemory) {
-        MVKTraceVulkanCallEnd();
-        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
-    }
-    
-    MVKDeviceMemory* mvkDevMem = (MVKDeviceMemory*)deviceMemory;
-    VkResult rslt = mvkDevMem->importFd(pImportFdInfo->fd, pImportFdInfo->handleType);
-    MVKTraceVulkanCallEnd();
-    return rslt;
-}
 
