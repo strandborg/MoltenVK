@@ -24,6 +24,8 @@
 #include "MVKFoundation.h"
 #include <cstdlib>
 #include <stdlib.h>
+#include <IOSurface/IOSurface.h>
+#include <unistd.h>
 
 using namespace std;
 
@@ -294,6 +296,8 @@ MVKDeviceMemory::MVKDeviceMemory(MVKDevice* device,
 	VkImage dedicatedImage = VK_NULL_HANDLE;
 	VkBuffer dedicatedBuffer = VK_NULL_HANDLE;
 	VkExternalMemoryHandleTypeFlags handleTypes = 0;
+	int importFd = -1;
+	
 	for (const auto* next = (const VkBaseInStructure*)pAllocateInfo->pNext; next; next = next->pNext) {
 		switch (next->sType) {
 			case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO: {
@@ -325,12 +329,18 @@ MVKDeviceMemory::MVKDeviceMemory(MVKDevice* device,
 				handleTypes = pExpMemInfo->handleTypes;
 				break;
 			}
+			case VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR: {
+				auto* pImpMemFdInfo = (VkImportMemoryFdInfoKHR*)next;
+				handleTypes = pImpMemFdInfo->handleType;
+				importFd = pImpMemFdInfo->fd;
+				break;
+			}
 			case VK_STRUCTURE_TYPE_IMPORT_METAL_BUFFER_INFO_EXT: {
 				// Setting Metal objects directly will override Vulkan settings.
 				// It is responsibility of app to ensure these are consistent. Not doing so results in undefined behavior.
 				const auto* pMTLBuffInfo = (VkImportMetalBufferInfoEXT*)next;
-				[_mtlBuffer release];							// guard against dups
-				_mtlBuffer = [pMTLBuffInfo->mtlBuffer retain];	// retained
+				[_mtlBuffer release];                            // guard against dups
+				_mtlBuffer = [pMTLBuffInfo->mtlBuffer retain];  // retained
 				_mtlStorageMode = _mtlBuffer.storageMode;
 				_mtlCPUCacheMode = _mtlBuffer.cpuCacheMode;
 				_allocationSize = _mtlBuffer.length;
@@ -339,6 +349,7 @@ MVKDeviceMemory::MVKDeviceMemory(MVKDevice* device,
 			case VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT: {
 				const auto* pExportInfo = (VkExportMetalObjectCreateInfoEXT*)next;
 				willExportMTLBuffer = pExportInfo->exportObjectType == VK_EXPORT_METAL_OBJECT_TYPE_METAL_BUFFER_BIT_EXT;
+				break;
 			}
 			case VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO: {
 				auto* pMemAllocFlagsInfo = (VkMemoryAllocateFlagsInfo*)next;
@@ -350,7 +361,16 @@ MVKDeviceMemory::MVKDeviceMemory(MVKDevice* device,
 		}
 	}
 
-	initExternalMemory(handleTypes);	// After setting _isDedicated
+	initExternalMemory(handleTypes);
+
+	// If we have a file descriptor to import, do it now
+	if (importFd >= 0) {
+		VkResult result = this->importFd(importFd, (VkExternalMemoryHandleTypeFlagBits)handleTypes);
+		if (result != VK_SUCCESS) {
+			setConfigurationResult(result);
+			return;
+		}
+	}
 
 	// "Dedicated" means this memory can only be used for this image or buffer.
 	if (dedicatedImage) {
@@ -370,9 +390,9 @@ MVKDeviceMemory::MVKDeviceMemory(MVKDevice* device,
 			}
 		}
 #endif
-        for (auto& memoryBinding : ((MVKImage*)dedicatedImage)->_memoryBindings) {
-            _imageMemoryBindings.push_back(memoryBinding);
-        }
+		for (auto& memoryBinding : ((MVKImage*)dedicatedImage)->_memoryBindings) {
+			_imageMemoryBindings.push_back(memoryBinding);
+		}
 		return;
 	}
 
@@ -397,24 +417,99 @@ MVKDeviceMemory::MVKDeviceMemory(MVKDevice* device,
 }
 
 void MVKDeviceMemory::initExternalMemory(VkExternalMemoryHandleTypeFlags handleTypes) {
-	if ( !handleTypes ) { return; }
-	
-	if ( !mvkIsOnlyAnyFlagEnabled(handleTypes, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR | VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR) ) {
-		setConfigurationResult(reportError(VK_ERROR_INITIALIZATION_FAILED, "vkAllocateMemory(): Only external memory handle types VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR or VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR are supported."));
-	}
+    if (!handleTypes) { return; }
+    
+    _externalMemoryHandleTypes = handleTypes;
+    
+    if (!mvkIsOnlyAnyFlagEnabled(handleTypes, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR | 
+                                            VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR |
+                                            VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)) {
+        setConfigurationResult(reportError(VK_ERROR_INITIALIZATION_FAILED, "vkAllocateMemory(): Only external memory handle types VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR, or VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT are supported."));
+    }
 
-	bool requiresDedicated = false;
-	if (mvkIsAnyFlagEnabled(handleTypes, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR)) {
-		auto& xmProps = getPhysicalDevice()->getExternalBufferProperties(VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR);
-		requiresDedicated = requiresDedicated || mvkIsAnyFlagEnabled(xmProps.externalMemoryFeatures, VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
-	}
-	if (mvkIsAnyFlagEnabled(handleTypes, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR)) {
-		auto& xmProps = getPhysicalDevice()->getExternalImageProperties(VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR);
-		requiresDedicated = requiresDedicated || mvkIsAnyFlagEnabled(xmProps.externalMemoryFeatures, VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
-	}
-	if (requiresDedicated && !_isDedicated) {
-		setConfigurationResult(reportError(VK_ERROR_INITIALIZATION_FAILED, "vkAllocateMemory(): External memory requires a dedicated VkBuffer or VkImage."));
-	}
+    bool requiresDedicated = false;
+    if (mvkIsAnyFlagEnabled(handleTypes, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR)) {
+        auto& xmProps = getPhysicalDevice()->getExternalBufferProperties(VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR);
+        requiresDedicated = requiresDedicated || mvkIsAnyFlagEnabled(xmProps.externalMemoryFeatures, VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
+    }
+    if (mvkIsAnyFlagEnabled(handleTypes, VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR)) {
+        auto& xmProps = getPhysicalDevice()->getExternalImageProperties(VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR);
+        requiresDedicated = requiresDedicated || mvkIsAnyFlagEnabled(xmProps.externalMemoryFeatures, VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
+    }
+    if (requiresDedicated && !_isDedicated) {
+        setConfigurationResult(reportError(VK_ERROR_INITIALIZATION_FAILED, "vkAllocateMemory(): External memory requires a dedicated VkBuffer or VkImage."));
+    }
+}
+
+VkResult MVKDeviceMemory::importFd(int fd, VkExternalMemoryHandleTypeFlagBits handleType) {
+    if (handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    if (!mvkIsAnyFlagEnabled(_externalMemoryHandleTypes, handleType)) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    // Create a new IOSurface from the file descriptor
+    IOSurfaceRef ioSurface = IOSurfaceLookupFromXPCObject((xpc_object_t)(uintptr_t)fd);
+    if (!ioSurface) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    VkResult result = importIOSurface(ioSurface);
+    CFRelease(ioSurface);
+    return result;
+}
+
+VkResult MVKDeviceMemory::getFd(int* pFd, VkExternalMemoryHandleTypeFlagBits handleType) {
+    if (handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    if (!mvkIsAnyFlagEnabled(_externalMemoryHandleTypes, handleType)) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    IOSurfaceRef ioSurface = getIOSurface();
+    if (!ioSurface) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    // Create an XPC object from the IOSurface that can be sent across processes
+    xpc_object_t xpcObj = IOSurfaceCreateXPCObject(ioSurface);
+    if (!xpcObj) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    // Convert XPC object to file descriptor
+    *pFd = (int)(uintptr_t)xpcObj;
+    return VK_SUCCESS;
+}
+
+IOSurfaceRef MVKDeviceMemory::getIOSurface() {
+    // If this memory is backing an image, get its IOSurface
+    if (!_imageMemoryBindings.empty()) {
+        MVKImageMemoryBinding* imgBind = _imageMemoryBindings[0];
+        if (imgBind && imgBind->_image) {
+            return imgBind->_image->getIOSurface();
+        }
+    }
+    return nil;
+}
+
+VkResult MVKDeviceMemory::importIOSurface(IOSurfaceRef ioSurface) {
+    if (!ioSurface) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
+    // If this memory is backing an image, set its IOSurface
+    if (!_imageMemoryBindings.empty()) {
+        MVKImageMemoryBinding* imgBind = _imageMemoryBindings[0];
+        if (imgBind && imgBind->_image) {
+            return imgBind->_image->useIOSurface(ioSurface);
+        }
+    }
+    return VK_ERROR_INVALID_EXTERNAL_HANDLE;
 }
 
 MVKDeviceMemory::~MVKDeviceMemory() {

@@ -4158,3 +4158,68 @@ MVK_PUBLIC_SYMBOL PFN_vkVoidFunction vk_icdGetPhysicalDeviceProcAddr(
 	return func;
 }
 
+#pragma mark -
+#pragma mark VK_KHR_external_memory_fd extension
+
+MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetMemoryFdKHR(
+    VkDevice                                    device,
+    const VkMemoryGetFdInfoKHR*                pGetFdInfo,
+    int*                                       pFd) {
+
+    MVKTraceVulkanCallStart();
+    MVKDeviceMemory* mvkDevMem = (MVKDeviceMemory*)pGetFdInfo->memory;
+    VkResult rslt = mvkDevMem->getFd(pFd, pGetFdInfo->handleType);
+    MVKTraceVulkanCallEnd();
+    return rslt;
+}
+
+MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetMemoryFdPropertiesKHR(
+    VkDevice                                    device,
+    VkExternalMemoryHandleTypeFlagBits         handleType,
+    int                                        fd,
+    VkMemoryFdPropertiesKHR*                   pMemoryFdProperties) {
+
+    MVKTraceVulkanCallStart();
+    MVKDevice* mvkDev = MVKDevice::getMVKDevice(device);
+    // For now, we only support opaque fd type, and it can be imported to any memory type that supports the required usage
+    if (handleType == VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT) {
+        // Get memory properties from the device's physical device
+        VkPhysicalDeviceMemoryProperties memProps;
+        VkPhysicalDevice physDev;
+        uint32_t devCount = 1;
+        VkResult rslt = mvkDev->getInstance()->getPhysicalDevices(&devCount, &physDev);
+        if (rslt != VK_SUCCESS) {
+            MVKTraceVulkanCallEnd();
+            return rslt;
+        }
+        MVKPhysicalDevice::getMVKPhysicalDevice(physDev)->getMemoryProperties(&memProps);
+        pMemoryFdProperties->memoryTypeBits = (1 << memProps.memoryTypeCount) - 1;
+        MVKTraceVulkanCallEnd();
+        return VK_SUCCESS;
+    }
+    MVKTraceVulkanCallEnd();
+    return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+}
+
+MVK_PUBLIC_VULKAN_SYMBOL VkResult vkImportMemoryFdKHR(
+    VkDevice                                    device,
+    const VkImportMemoryFdInfoKHR*             pImportFdInfo) {
+
+    MVKTraceVulkanCallStart();
+    if (!pImportFdInfo) {
+        MVKTraceVulkanCallEnd();
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+    
+    VkDeviceMemory deviceMemory = pImportFdInfo->memory;
+    if (!deviceMemory) {
+        MVKTraceVulkanCallEnd();
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+    
+    MVKDeviceMemory* mvkDevMem = (MVKDeviceMemory*)deviceMemory;
+    VkResult rslt = mvkDevMem->importFd(pImportFdInfo->fd, pImportFdInfo->handleType);
+    MVKTraceVulkanCallEnd();
+    return rslt;
+}
+

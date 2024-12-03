@@ -3324,15 +3324,20 @@ void MVKPhysicalDevice::initExternalMemoryProperties() {
 	// Buffers
 	_mtlBufferExternalMemoryProperties.externalMemoryFeatures = (VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT |
 																 VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT);
-	_mtlBufferExternalMemoryProperties.exportFromImportedHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR;
-	_mtlBufferExternalMemoryProperties.compatibleHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR;
+	_mtlBufferExternalMemoryProperties.exportFromImportedHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+	_mtlBufferExternalMemoryProperties.compatibleHandleTypes = (VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT |
+																VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR);
 
 	// Images
 	_mtlTextureExternalMemoryProperties.externalMemoryFeatures = (VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT |
 																  VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT |
 																  VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
-	_mtlTextureExternalMemoryProperties.exportFromImportedHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR;
-	_mtlTextureExternalMemoryProperties.compatibleHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR;
+	_mtlTextureExternalMemoryProperties.exportFromImportedHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+	_mtlTextureExternalMemoryProperties.compatibleHandleTypes = (VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT |
+																VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR |
+																VK_EXTERNAL_MEMORY_HANDLE_TYPE_IOSURFACE_BIT_MVK);
+
+	// ... existing code ...
 }
 
 void MVKPhysicalDevice::initExtensions() {

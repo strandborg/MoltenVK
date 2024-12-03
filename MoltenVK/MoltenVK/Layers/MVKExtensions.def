@@ -61,6 +61,7 @@ MVK_EXTENSION(KHR_external_fence,                     KHR_EXTERNAL_FENCE,       
 MVK_EXTENSION(KHR_external_fence_capabilities,        KHR_EXTERNAL_FENCE_CAPABILITIES,        INSTANCE, 10.11,  8.0,  1.0)
 MVK_EXTENSION(KHR_external_memory,                    KHR_EXTERNAL_MEMORY,                    DEVICE,   10.11,  8.0,  1.0)
 MVK_EXTENSION(KHR_external_memory_capabilities,       KHR_EXTERNAL_MEMORY_CAPABILITIES,       INSTANCE, 10.11,  8.0,  1.0)
+MVK_EXTENSION(KHR_external_memory_fd,                 KHR_EXTERNAL_MEMORY_FD,                 DEVICE,   10.11,  8.0,  1.0)
 MVK_EXTENSION(KHR_external_semaphore,                 KHR_EXTERNAL_SEMAPHORE,                 DEVICE,   10.11,  8.0,  1.0)
 MVK_EXTENSION(KHR_external_semaphore_capabilities,    KHR_EXTERNAL_SEMAPHORE_CAPABILITIES,    INSTANCE, 10.11,  8.0,  1.0)
 MVK_EXTENSION(KHR_fragment_shader_barycentric,        KHR_FRAGMENT_SHADER_BARYCENTRIC,        DEVICE,   10.15, 14.0,  1.0)

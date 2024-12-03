@@ -26,9 +26,10 @@
 
 class MVKImageMemoryBinding;
 
-// TODO: These are inoperable placeholders until VK_KHR_external_memory_metal defines them properly
-static const VkExternalMemoryHandleTypeFlagBits VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR = VK_EXTERNAL_MEMORY_HANDLE_TYPE_FLAG_BITS_MAX_ENUM;
-static const VkExternalMemoryHandleTypeFlagBits VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR = VK_EXTERNAL_MEMORY_HANDLE_TYPE_FLAG_BITS_MAX_ENUM;
+// External memory handle types supported by MoltenVK
+static const VkExternalMemoryHandleTypeFlagBits VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLBUFFER_BIT_KHR = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+static const VkExternalMemoryHandleTypeFlagBits VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+static const VkExternalMemoryHandleTypeFlagBits VK_EXTERNAL_MEMORY_HANDLE_TYPE_IOSURFACE_BIT_MVK = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
 
 
 #pragma mark MVKDeviceMemory
@@ -110,6 +111,18 @@ public:
 							VkDeviceSize size,
 							MVKMTLBlitEncoder* pBlitEnc = nullptr);
 
+	/** Import memory from a file descriptor. */
+	VkResult importFd(int fd, VkExternalMemoryHandleTypeFlagBits handleType);
+
+	/** Export memory to a file descriptor. */
+	VkResult getFd(int* pFd, VkExternalMemoryHandleTypeFlagBits handleType);
+
+	/** Returns the IOSurface associated with this memory, if any. */
+	IOSurfaceRef getIOSurface();
+
+	/** Import memory from an IOSurface. */
+	VkResult importIOSurface(IOSurfaceRef ioSurface);
+
 
 #pragma mark Metal
 
@@ -139,9 +152,12 @@ public:
     ~MVKDeviceMemory() override;
 
 protected:
+	friend class MVKDevice;
+	friend class MVKDeviceTrackingMixin;
 	friend class MVKBuffer;
-    friend class MVKImageMemoryBinding;
-    friend class MVKImagePlane;
+	friend class MVKImage;
+	friend class MVKImageMemoryBinding;
+	friend class MVKImagePlane;
 
 	void propagateDebugName() override;
 	VkDeviceSize adjustMemorySize(VkDeviceSize size, VkDeviceSize offset);
@@ -171,6 +187,7 @@ protected:
 	MTLCPUCacheMode _mtlCPUCacheMode;
 	bool _isDedicated = false;
 	bool _isHostMemImported = false;
+	VkExternalMemoryHandleTypeFlags _externalMemoryHandleTypes = 0;
 
 };
 
